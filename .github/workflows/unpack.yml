@@ -1,0 +1,41 @@
+name: Unpack vendor_boot
+
+# 把 vendor_boot.img 放进仓库根目录下的 input/ 文件夹，命名为 input/vendor_boot.img，
+# 然后 git push（或者在网页上 Add file -> Upload files 上传也行，只要路径对）。
+# 这个 workflow 会自动跑起来，解包完成后到 Actions 页面这次运行的 Summary 里
+# 下载 "unpacked" 这个 artifact（是个 zip），解压后就是可以直接用文本编辑器改的
+# 文件夹结构（fragments/platform/、fragments/recovery/ 等）。
+#
+# 也可以在 Actions 页面手动点 "Run workflow" 触发（workflow_dispatch），
+# 同样要求 input/vendor_boot.img 已经在仓库里。
+
+on:
+  push:
+    paths:
+      - "input/**.img"
+  workflow_dispatch: {}
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装依赖 (liblz4 / libzstd 的 Python 运行时已经内置，只需要基础库存在)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y liblz4-1 libzstd1
+
+      - name: 解包 vendor_boot.img
+        run: |
+          set -e
+          IMG=$(ls input/*.img | head -n1)
+          echo "解包: $IMG"
+          python3 scripts/vboot_unpack.py "$IMG" unpacked
+
+      - name: 上传解包结果
+        uses: actions/upload-artifact@v4
+        with:
+          name: unpacked
+          path: unpacked/
+          retention-days: 14

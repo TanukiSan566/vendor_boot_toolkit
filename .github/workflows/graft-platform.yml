@@ -1,0 +1,48 @@
+name: Graft PLATFORM fragment (fix bootloop)
+
+# 专门解决"能进TWRP但选重启到系统就死循环"这一类问题：hovatek这种最小
+# manifest编译出来的vendor_boot，PLATFORM分段内容经常是残缺的（缺少真正的
+# vendor init脚本），这里直接把一份完整、正确的PLATFORM分段（从原厂
+# vendor_boot.img里取）拼接到刚编译出来的vendor_boot上，RECOVERY分段保留
+# 编译产物自己那份不动。全程不解压不改内容，纯字节级拼接，最大程度降低风险。
+#
+# 用法：
+#   1. 把原厂的vendor_boot.img放进 input/donor_stock_vendor_boot.img
+#   2. 把刚编译出来的vendor_boot.img放进 input/fresh_build_vendor_boot.img
+#   3. push（或者手动 Run workflow）
+#   4. Actions页面这次运行的Artifacts里下载 vendor_boot_grafted，里面就是
+#      修好的最终镜像，直接fastboot flash
+
+on:
+  push:
+    paths:
+      - "input/donor_stock_vendor_boot.img"
+      - "input/fresh_build_vendor_boot.img"
+  workflow_dispatch: {}
+
+jobs:
+  graft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 移植PLATFORM分段
+        run: |
+          set -e
+          if [ ! -f input/donor_stock_vendor_boot.img ]; then
+            echo "缺少 input/donor_stock_vendor_boot.img（原厂vendor_boot.img）"; exit 1
+          fi
+          if [ ! -f input/fresh_build_vendor_boot.img ]; then
+            echo "缺少 input/fresh_build_vendor_boot.img（刚编译出来的vendor_boot.img）"; exit 1
+          fi
+          python3 scripts/vboot_graft_platform.py \
+            input/donor_stock_vendor_boot.img \
+            input/fresh_build_vendor_boot.img \
+            vendor_boot_grafted.img
+
+      - name: 上传结果
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendor_boot_grafted
+          path: vendor_boot_grafted.img
+          retention-days: 14

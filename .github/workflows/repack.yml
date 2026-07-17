@@ -1,0 +1,56 @@
+name: Repack vendor_boot
+
+# 把从 unpack workflow 下载下来的那个 unpacked 文件夹（改完之后的）整个放进
+# 仓库根目录下的 edited/ 文件夹（也就是 edited/metadata.json、
+# edited/fragments/platform/... 这样的结构），git push。
+# 这个 workflow 会自动重新打包，完成后在这次运行的 Summary 里下载
+# "vendor_boot_repacked" 这个 artifact，里面就是新的 vendor_boot.img，
+# 拿去 fastboot flash 就行。
+#
+# 默认每个分段都用它原来的压缩格式重新压缩（记在 metadata.json 里，不用你管）。
+# 如果哪个分段改完之后文件变大、装不下分区了，想强制换成压缩率更高的 zstd，
+# 在下面 workflow_dispatch 的 codec_overrides 输入框里填，比如：
+#   platform=zstd,recovery=zstd
+# 留空就是都用原来的格式，不用管这个输入框。
+
+on:
+  push:
+    paths:
+      - "edited/**"
+  workflow_dispatch:
+    inputs:
+      codec_overrides:
+        description: "可选：强制指定某些分段的压缩格式，格式 name=codec,name2=codec2（codec 可选 lz4legacy / zstd）"
+        required: false
+        default: ""
+
+jobs:
+  repack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装依赖
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y liblz4-1 libzstd1
+
+      - name: 重新打包
+        run: |
+          set -e
+          OVERRIDES="${{ github.event.inputs.codec_overrides }}"
+          ARGS=""
+          if [ -n "$OVERRIDES" ]; then
+            IFS=',' read -ra PAIRS <<< "$OVERRIDES"
+            for p in "${PAIRS[@]}"; do
+              ARGS="$ARGS $p"
+            done
+          fi
+          python3 scripts/vboot_repack.py edited vendor_boot_repacked.img $ARGS
+
+      - name: 上传打包结果
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendor_boot_repacked
+          path: vendor_boot_repacked.img
+          retention-days: 14
